@@ -7,7 +7,6 @@ TARGET_SUB = 'redditrequest'
 DESTINATION = 'redditapprovals'
 REDDIT = praw.Reddit('AUTHENTICATION')
 SUBS = set()
-
 logger = logging.getLogger('Activity')
 logging.basicConfig(
     filename='log.txt',
