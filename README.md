@@ -1,6 +1,10 @@
 # Reddit Approvals Bots
-Code for bots that operate [/r/redditapprovals](https://www.reddit.com/r/redditapprovals)
 
+---
+
+### Code for bots that operate [/r/redditapprovals](https://www.reddit.com/r/redditapprovals)
+
+---
 
 ### Activity.py
 * Scans the recent comments for the moderators of [/r/redditrequest](https://www.reddit.com/r/redditrequest).
