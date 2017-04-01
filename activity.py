@@ -1,5 +1,6 @@
 from time import time, gmtime, strftime
 import logging
+import sqlite3
 import sys
 import praw
 
@@ -7,7 +8,9 @@ TARGET_SUB = 'redditrequest'
 DESTINATION = 'redditapprovals'
 REDDIT = praw.Reddit('AUTHENTICATION')
 SUBS = set()
-logger = logging.getLogger('Activity')
+CONN = sqlite3.connect('approvals.db')
+CUR = CONN.cursor()
+LOGGER = logging.getLogger('Activity')
 logging.basicConfig(
     filename='log.txt',
     filemode='a',
@@ -19,6 +22,7 @@ def main():
     comments = comment_list()
     thread = build_thread(comments)
     submit_thread(thread)
+    LOGGER.info('Ran Activity.py')
 
 
 def comment_list():
@@ -36,53 +40,6 @@ def comment_list():
             s_link, requester, s_time = get_submission(s_id)
             comments.append((mod, c_time, s_link, requester, s_time))
     return comments
-
-
-def build_thread(comments):
-    """
-    Called by main()
-    Creates the body of the thread
-
-    :param comments: list of 5-item tuples
-    :return thread body text: string
-    """
-
-    header = """
-##### All times are UTC
----
-Admin|Date of Comment|Thread|Requestor|Date of Request
----|---|---|---|---
-"""
-    strings = []
-    for comment in update_comments(comments):
-        strings.append(' | '.join(comment))
-    return header + '\n'.join(strings)
-
-
-def submit_thread(thread_body):
-    """
-    Called by main()
-    Builds and submits the thread
-    Distinguishes author as a moderator
-
-    :param thread_body: string
-    """
-
-    title = 'Recent Admin Activity'
-    try:
-        submission = REDDIT.subreddit(DESTINATION).submit(
-            title=title,
-            selftext=thread_body,
-            send_replies=True
-        )
-    except Exception as error:
-        handle_error(error)
-    else:
-        try:
-            submission.mod.distinguish()
-            submission.mod.approve()
-        except Exception as error:
-            handle_error(error)
 
 
 def get_mods():
@@ -123,15 +80,16 @@ def get_comments(mod):
         for comment in comment_gen:
             if count == 3:
                 break
-            elif comment.subreddit == TARGET_SUB:
-                if time() - comment.created_utc > 60 * 60 * 24 * 30:
-                    break
-                elif comment.submission.id in SUBS:
-                    continue
-                else:
-                    yield comment.created_utc, comment.submission.id
-                    SUBS.add(comment.submission.id)
-                    count += 1
+            elif time() - comment.created_utc > 60 * 60 * 24 * 30:
+                break
+            elif comment.subreddit != TARGET_SUB:
+                continue
+            elif comment.submission.id in SUBS:
+                continue
+            else:
+                yield comment.created_utc, comment.submission.id
+                SUBS.add(comment.submission.id)
+                count += 1
 
 
 def get_submission(sub_id):
@@ -154,6 +112,36 @@ def get_submission(sub_id):
         return link, requester, dor
 
 
+def build_thread(comments):
+    """
+    Called by main()
+    Creates the body of the thread
+
+    :param comments: list of 5-item tuples
+    :return thread body text: string
+    """
+
+    stats = [row for row in CONN.execute('SELECT * FROM stats')][0]
+    header = """
+##### Stats for approvals in the past 60 days
+^^Updated ^^weekly ^^| ^^Measured ^^in ^^days ^^| ^^Some ^^approved ^^by ^^current ^^mods
+
+Mean | Median | SD | Var | Min | Max | Quantity
+---|---|---|---|---|---|---|---
+ {} | {} | {} | {} | {} | {} | {}
+
+---
+##### Recent Comments
+---
+Admin|Comment Date|Thread|Requester|Request Date
+---|---|---|---|---
+""".format(*stats)
+    strings = []
+    for comment in update_comments(comments):
+        strings.append(' | '.join(comment))
+    return header + '\n'.join(strings)
+
+
 def update_comments(comments):
     """
     Called by build_thread()
@@ -164,14 +152,15 @@ def update_comments(comments):
     :yield 5-item tuple: 5 strings
     """
 
-    # c[1] = comment date    c[4] = request date    reversed=True will put most recent on top
     comments.sort(key=lambda c: c[1], reverse=True)
     for comment in comments:
-        moderator = '/u/{}'.format(comment[0][:8])
+        moderator = '[{}](/u/{})'.format(comment[0][:8], comment[0])
         c_time = convert_time(comment[1])
         s_link = '[Thread](http://www.reddit.com{})'.format(comment[2])
-        requester = '/u/{}'.format(comment[3][:8]) if comment[3] else '[deleted]'
-        s_time = convert_time(comment[1])
+        requester = '[deleted]'
+        if comment[3]:
+            requester = '[{}](/u/{})'.format(comment[3][:8], comment[3])
+        s_time = convert_time(comment[4])
         yield moderator, c_time, s_link, requester, s_time
 
 
@@ -184,13 +173,39 @@ def convert_time(timestamp):
     :param timestamp: int
     :return formatted time: string
     """
-    return strftime('%d %b %Y %H:%M:%S', gmtime(timestamp))
+    return strftime('%d %b %Y', gmtime(timestamp))
 
 
 def handle_error(error):
-    logger.exception(error)
+    LOGGER.exception(error)
     sys.exit()
+
+
+def submit_thread(thread_body):
+    """
+    Called by main()
+    Builds and submits the thread
+    Distinguishes author as a moderator
+
+    :param thread_body: string
+    """
+
+    title = 'Recent Admin Activity'
+    try:
+        submission = REDDIT.subreddit(DESTINATION).submit(
+            title=title,
+            selftext=thread_body,
+            send_replies=True
+        )
+    except Exception as error:
+        handle_error(error)
+    else:
+        try:
+            submission.mod.distinguish()
+            submission.mod.approve()
+        except Exception as error:
+            handle_error(error)
+
 
 if __name__ == '__main__':
     main()
-    logger.info('Ran Activity.py')
