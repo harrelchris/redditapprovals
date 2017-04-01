@@ -1,10 +1,11 @@
 # Reddit Approvals Bots
 
----
-
 ### Code for bots that operate [/r/redditapprovals](https://www.reddit.com/r/redditapprovals)
 
 ---
+
+[![Python](https://img.shields.io/badge/Python-3+-blue.svg?style=plastic)](https://www.python.org/downloads/)
+[![Praw](https://img.shields.io/badge/Praw-4-blue.svg?style=plastic)](https://github.com/praw-dev/praw)
 
 ### Approvals.py
 * Backend script for database CRUD operations.
