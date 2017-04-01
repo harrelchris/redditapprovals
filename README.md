@@ -18,6 +18,7 @@
 * Scans the recent comments for the moderators of [/r/redditrequest](https://www.reddit.com/r/redditrequest).
 * Builds a table with the three most recent relevant comments made by each mod.
 * Comments are only considered relevant if made in the subreddit of [/r/redditrequest](https://www.reddit.com/r/redditrequest) in the past 30 days.
+* Creates a thread on [/r/redditapprovals](https://www.reddit.com/r/redditapprovals).
 
 ### Mailer.py
 * Sends a notification to users who submit a request to [/r/redditrequest](https://www.reddit.com/r/redditrequest).
