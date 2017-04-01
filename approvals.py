@@ -1,3 +1,4 @@
+import statistics as sts
 from time import time
 import logging
 import sqlite3
