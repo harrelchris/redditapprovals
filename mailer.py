@@ -3,7 +3,7 @@ import sqlite3
 import sys
 import praw
 
-TARGET_SUB = 'pylet'
+TARGET_SUB = 'redditrequest'
 REDDIT = praw.Reddit('AUTHENTICATION')
 CONN = sqlite3.connect('approvals.db')
 CUR = CONN.cursor()
