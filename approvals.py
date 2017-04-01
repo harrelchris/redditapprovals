@@ -8,20 +8,22 @@ CUTOFF = time() - 60 * 60 * 24 * 60
 TARGET_SUB = 'redditrequest'
 DESTINATION = 'redditapprovals'
 REDDIT = praw.Reddit('AUTHENTICATION')
-logger = logging.getLogger('Activity')
+CONN = sqlite3.connect('approvals.db')
+CUR = CONN.cursor()
+LOGGER = logging.getLogger('Approvals')
 logging.basicConfig(
     filename='log.txt',
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s')
-conn = sqlite3.connect('approvals.db')
-c = conn.cursor()
 
 
 def main():
-    conn.execute('DELETE FROM threads WHERE created_utc < ?', (CUTOFF,))
+    CONN.execute('DELETE FROM threads WHERE created_utc < ?', (CUTOFF,))
     store_requests()
     check_mod_status()
+    calculate_stats()
+    LOGGER.info('Ran Approvals.py')
 
 
 def store_requests():
@@ -30,14 +32,14 @@ def store_requests():
     Gathers all threads from /r/redditrequests
     Adds new thread to the database and commits once"""
 
-    ids = {_id[0] for _id in conn.execute('SELECT id FROM threads')}
+    ids = {_id[0] for _id in CONN.execute('SELECT id FROM threads')}
     for request in request_gen():
         _id, author, created_utc, permalink, subreddit = request
         if _id in ids:
             continue
-        c.execute('INSERT INTO threads VALUES (?,?,?,?,?,?,?,?)', (
+        CUR.execute('INSERT INTO threads VALUES (?,?,?,?,?,?,?,?)', (
             _id, author, created_utc, permalink, subreddit, 0, 0, 0))
-    conn.commit()
+    CONN.commit()
 
 
 def request_gen():
@@ -48,7 +50,7 @@ def request_gen():
     try:
         generator = REDDIT.subreddit(TARGET_SUB).new(limit=None)
     except Exception as error:
-        logger.exception(error)
+        LOGGER.exception(error)
     else:
         for submission in generator:
             if not submission.author:
@@ -89,7 +91,7 @@ def check_mod_status():
     If they are now a mod, the database is updated"""
 
     query = 'SELECT id, author, created_utc, subreddit FROM threads WHERE is_mod=0'
-    not_mods = {row for row in conn.execute(query)}
+    not_mods = {row for row in CONN.execute(query)}
     for entry in not_mods:
         _id, author, created_utc, subreddit = entry
         created_utc = float(created_utc)
@@ -104,7 +106,7 @@ def check_mod_status():
             update_status(_id, 2, 'AlreadyMod', 0)
         else:
             update_status(_id, 1, date_of_mod, created_utc)
-    conn.commit()
+    CONN.commit()
 
 
 def is_mod(author, created_utc, subreddit):
@@ -120,7 +122,7 @@ def is_mod(author, created_utc, subreddit):
     except prawcore.exceptions.NotFound:
         return 'NotFound'
     except Exception as error:
-        logger.exception(error)
+        LOGGER.exception(error)
     else:
         for mod in mod_gen:
             if not mod.name.lower() == author.lower():
@@ -142,11 +144,35 @@ def update_status(_id, status, date_of_mod, created_utc):
         duration = 0
     else:
         duration = date_of_mod - created_utc
-    c.execute('UPDATE threads SET is_mod=?, date_of_mod=?, duration=? WHERE id=?', (
+    CUR.execute('UPDATE threads SET is_mod=?, date_of_mod=?, duration=? WHERE id=?', (
         status, date_of_mod, duration, _id
     ))
 
 
+def calculate_stats():
+    """
+    Refresh table
+    Get all durations and convert float
+    Calc mean, median and divide results by num of seconds/day
+    Store the values
+    """
+
+    CUR.execute('DROP TABLE IF EXISTS stats')
+    CUR.execute('CREATE TABLE IF NOT EXISTS stats(mean, median, stdev, var, min, max, count)')
+    dur = [float(d[0]) for d in CONN.execute('SELECT duration FROM threads WHERE is_mod=1')]
+    count = len(dur)
+
+    days = [(d // (60 * 60 * 24)) for d in dur]
+    var = int(sts.variance(days))
+    stdev = '{:.3}'.format(var ** .5)
+
+    values = [sts.mean(dur), sts.median(dur), min(dur), max(dur)]
+    mean, median, _min, _max = [int(d // (60 * 60 * 24)) for d in values]
+
+    CUR.execute('INSERT INTO stats VALUES (?,?,?,?,?,?,?)', (
+         mean, median, stdev, var, _min, _max, count))
+    CONN.commit()
+
+
 if __name__ == '__main__':
     main()
-    logger.info('Ran Approvals.py')
