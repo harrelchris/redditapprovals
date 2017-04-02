@@ -11,21 +11,36 @@ logging.basicConfig(
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s')
+target_sub = 'redditrequest'
 
 
 def main():
     logger.info('Start')
     start = time()
     sleep(5)
+    prime_mods()
     while True:
         try:
-            for submission in reddit.subreddit('redditrequest').stream.submissions():
+            for submission in reddit.subreddit(target_sub).stream.submissions():
                 if submission.created_utc < start:
                     continue
                 handle(submission.author.name.lower())
         except Exception as error:
             logger.exception(error)
             sleep(30)
+
+
+def prime_mods():
+    blacklist = {n[0] for n in conn.execute('SELECT user FROM blacklist')}
+    try:
+        for mod in reddit.subreddit(target_sub).moderator():
+            mod = mod.name.lower()
+            if mod in blacklist:
+                continue
+            conn.execute('INSERT INTO blacklist VALUES (?)', (mod,))
+        conn.commit()
+    except Exception as error:
+        logger.exception(error)
 
 
 def handle(author):
