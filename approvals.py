@@ -1,57 +1,58 @@
+from time import sleep, time
 import statistics as sts
-from time import time
 import logging
 import sqlite3
 import praw
 import prawcore
 
-CUTOFF = time() - 60 * 60 * 24 * 60
-TARGET_SUB = 'redditrequest'
-DESTINATION = 'redditapprovals'
-REDDIT = praw.Reddit('AUTHENTICATION')
-CONN = sqlite3.connect('approvals.db')
-CUR = CONN.cursor()
-LOGGER = logging.getLogger('Approvals')
+reddit = praw.Reddit('AUTHENTICATION')
+conn = sqlite3.connect('approvals.db')
+cur = conn.cursor()
+logger = logging.getLogger('Approvals')
 logging.basicConfig(
     filename='log.txt',
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s')
+cutoff = time() - 60 * 60 * 24 * 60
 
 
 def main():
-    CONN.execute('DELETE FROM threads WHERE created_utc < ?', (CUTOFF,))
+    logger.info('Start')
+    conn.execute('DELETE FROM threads WHERE created_utc < ?', (cutoff,))
     store_requests()
     check_mod_status()
     calculate_stats()
-    LOGGER.info('Ran Approvals.py')
+    logger.info('Complete')
 
 
 def store_requests():
-    """Called by main()
+    """
     Generates id column from db
     Gathers all threads from /r/redditrequests
-    Adds new thread to the database and commits once"""
+    Adds new thread to the database and commits once
+    """
 
-    ids = {_id[0] for _id in CONN.execute('SELECT id FROM threads')}
+    ids = {_id[0] for _id in conn.execute('SELECT id FROM threads')}
     for request in request_gen():
         _id, author, created_utc, permalink, subreddit = request
         if _id in ids:
             continue
-        CUR.execute('INSERT INTO threads VALUES (?,?,?,?,?,?,?,?)', (
+        cur.execute('INSERT INTO threads VALUES (?,?,?,?,?,?,?,?)', (
             _id, author, created_utc, permalink, subreddit, 0, 0, 0))
-    CONN.commit()
+    conn.commit()
 
 
 def request_gen():
-    """Called by store_requests()
+    """
     Generates threads from /r/redditrequests
-    Yields necessary data from threads that have not been deleted"""
+    Yields necessary data from threads that have not been deleted
+    """
 
     try:
-        generator = REDDIT.subreddit(TARGET_SUB).new(limit=None)
+        generator = reddit.subreddit('redditrequest').new(limit=None)
     except Exception as error:
-        LOGGER.exception(error)
+        logger.exception(error)
     else:
         for submission in generator:
             if not submission.author:
@@ -63,15 +64,16 @@ def request_gen():
             subreddit = sub_from_url(submission.url)
             if not subreddit:
                 continue
-            if created_utc < CUTOFF:
+            if created_utc < cutoff:
                 continue
             yield _id, author, created_utc, permalink, subreddit
 
 
 def sub_from_url(url):
-    """Called by request_gen()
+    """
     Parses the requested subreddit from the url
-    Example URL: https://www.reddit.com/r/redditrequest/"""
+    Example URL: https://www.reddit.com/r/redditrequest/
+    """
 
     if '/r/' not in url:
         return None
@@ -86,13 +88,14 @@ def sub_from_url(url):
 
 
 def check_mod_status():
-    """Called by main()
+    """
     Generates all entries from the db where is_mod == False
     Checks each entry to see if the requester has been made a mod
-    If they are now a mod, the database is updated"""
+    If they are now a mod, the database is updated
+    """
 
     query = 'SELECT id, author, created_utc, subreddit FROM threads WHERE is_mod=0'
-    not_mods = {row for row in CONN.execute(query)}
+    not_mods = {row for row in conn.execute(query)}
     for entry in not_mods:
         _id, author, created_utc, subreddit = entry
         created_utc = float(created_utc)
@@ -107,23 +110,24 @@ def check_mod_status():
             update_status(_id, 2, 'AlreadyMod', 0)
         else:
             update_status(_id, 1, date_of_mod, created_utc)
-    CONN.commit()
+    conn.commit()
 
 
 def is_mod(author, created_utc, subreddit):
-    """Called by check_mod_status()
+    """
     Generates all moderators of the subreddit in question
     Return True if the author is a mod and they were made a mod after their request
-    They may have been made a mod by an existing mod. Doesn't mean admin approval."""
+    They may have been made a mod by an existing mod. Doesn't mean admin approval.
+    """
 
     try:
-        mod_gen = REDDIT.subreddit(subreddit).moderator()
+        mod_gen = reddit.subreddit(subreddit).moderator()
     except prawcore.exceptions.Forbidden:
         return 'Forbidden'
     except prawcore.exceptions.NotFound:
         return 'NotFound'
     except Exception as error:
-        LOGGER.exception(error)
+        logger.exception(error)
     else:
         for mod in mod_gen:
             if not mod.name.lower() == author.lower():
@@ -136,16 +140,17 @@ def is_mod(author, created_utc, subreddit):
 
 
 def update_status(_id, status, date_of_mod, created_utc):
-    """Called by check_mod_status()
+    """
     Updates the db to indicate when the person was made a moderator
     Calculates the duration between the request being made and the
-    person being made a moderator"""
+    person being made a moderator
+    """
 
     if isinstance(date_of_mod, str):
         duration = 0
     else:
         duration = date_of_mod - created_utc
-    CUR.execute('UPDATE threads SET is_mod=?, date_of_mod=?, duration=? WHERE id=?', (
+    cur.execute('UPDATE threads SET is_mod=?, date_of_mod=?, duration=? WHERE id=?', (
         status, date_of_mod, duration, _id
     ))
 
@@ -158,9 +163,9 @@ def calculate_stats():
     Store the values
     """
 
-    CUR.execute('DROP TABLE IF EXISTS stats')
-    CUR.execute('CREATE TABLE IF NOT EXISTS stats(mean, median, stdev, var, min, max, count)')
-    dur = [float(d[0]) for d in CONN.execute('SELECT duration FROM threads WHERE is_mod=1')]
+    cur.execute('DROP TABLE IF EXISTS stats')
+    cur.execute('CREATE TABLE IF NOT EXISTS stats(mean, median, stdev, var, min, max, count)')
+    dur = [float(d[0]) for d in conn.execute('SELECT duration FROM threads WHERE is_mod=1')]
     count = len(dur)
 
     days = [(d // (60 * 60 * 24)) for d in dur]
@@ -170,9 +175,9 @@ def calculate_stats():
     values = [sts.mean(dur), sts.median(dur), min(dur), max(dur)]
     mean, median, _min, _max = [int(d // (60 * 60 * 24)) for d in values]
 
-    CUR.execute('INSERT INTO stats VALUES (?,?,?,?,?,?,?)', (
+    cur.execute('INSERT INTO stats VALUES (?,?,?,?,?,?,?)', (
          mean, median, stdev, var, _min, _max, count))
-    CONN.commit()
+    conn.commit()
 
 
 if __name__ == '__main__':
