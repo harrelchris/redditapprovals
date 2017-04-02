@@ -29,7 +29,7 @@ def main():
 
 
 def handle(author):
-    if author in {n[0] for n in conn.execute('SELECT user FROM blacklist')} and author != 'kimpeek':
+    if author in {n[0] for n in conn.execute('SELECT user FROM blacklist')}:
         return None
     else:
 
