@@ -14,7 +14,7 @@ logging.basicConfig(
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s')
-cutoff = time() - 60 * 60 * 24 * 30
+cutoff = time() - 60 * 60 * 24 * 60
 
 
 def main():
