@@ -1,165 +1,183 @@
-from time import gmtime, strftime, time
+from time import sleep, time
+import statistics as sts
 import logging
 import sqlite3
 import praw
+import prawcore
 
 reddit = praw.Reddit('AUTHENTICATION')
 conn = sqlite3.connect('approvals.db')
-logger = logging.getLogger('Activity')
+cur = conn.cursor()
+logger = logging.getLogger('Approvals')
 logging.basicConfig(
     filename='log.txt',
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s')
-target_sub = 'redditrequest'
-subs = set()
+cutoff = time() - 60 * 60 * 24 * 30
 
 
 def main():
     logger.info('Start')
-    comments = comment_list()
-    thread = build_thread(comments)
-    submit_thread(thread)
+    conn.execute('DELETE FROM threads WHERE created_utc < ?', (cutoff,))
+    store_requests()
+    check_mod_status()
+    calculate_stats()
     logger.info('Complete')
 
 
-def comment_list():
+def store_requests():
     """
-    Builds a list of 5-item tuples with data about recent admin activity
+    Generates id column from db
+    Gathers all threads from /r/redditrequests
+    Adds new thread to the database and commits once
     """
 
-    comments = []
-    for mod in get_mods():
-        for comment in get_comments(mod):
-            c_time, s_id = comment
-            s_link, requester, s_time = get_submission(s_id)
-            comments.append((mod, c_time, s_link, requester, s_time))
-    return comments
+    ids = {_id[0] for _id in conn.execute('SELECT id FROM threads')}
+    for request in request_gen():
+        _id, author, created_utc, permalink, subreddit = request
+        if _id in ids:
+            continue
+        cur.execute('INSERT INTO threads VALUES (?,?,?,?,?,?,?,?)', (
+            _id, author, created_utc, permalink, subreddit, 0, 0, 0))
+    conn.commit()
 
 
-def get_mods():
+def request_gen():
     """
-    Generator of strings which are the names of the moderators for the sub
+    Generates threads from /r/redditrequests
+    Yields necessary data from threads that have not been deleted
     """
 
     try:
-        mod_gen = reddit.subreddit(target_sub).moderator()
+        generator = reddit.subreddit('redditrequest').new(limit=None)
     except Exception as error:
         logger.exception(error)
     else:
-        avoid = {'request_bot', 'automoderator'}
-        for mod in mod_gen:
-            if mod.name.lower() in avoid:
+        for submission in generator:
+            if not submission.author:
                 continue
-            yield mod.name
-
-
-def get_comments(mod):
-    """
-    Generator of tuples containing the time of the comment and the id of the parent thread
-    """
-
-    try:
-        comment_gen = reddit.redditor(mod).comments.new(limit=None)
-    except Exception as error:
-        logger.exception(error)
-    else:
-        count = 0
-        for comment in comment_gen:
-            if count == 3:
-                break
-            elif time() - comment.created_utc > 60 * 60 * 24 * 30:
-                break
-            elif comment.subreddit != target_sub:
+            _id = submission.id
+            author = submission.author.name
+            created_utc = submission.created_utc
+            permalink = submission.permalink
+            subreddit = sub_from_url(submission.url)
+            if not subreddit:
                 continue
-            elif comment.submission.id in subs:
+            if created_utc < cutoff:
                 continue
-            else:
-                yield comment.created_utc, comment.submission.id
-                subs.add(comment.submission.id)
-                count += 1
+            yield _id, author, created_utc, permalink, subreddit
 
 
-def get_submission(sub_id):
+def sub_from_url(url):
     """
-    Returns the permalink, author and creation time for a submission
+    Parses the requested subreddit from the url
+    Example URL: https://www.reddit.com/r/redditrequest/
     """
 
-    try:
-        sub = reddit.submission(sub_id)
-    except Exception as error:
-        logger.exception(error)
+    if '/r/' not in url:
+        return None
     else:
-        link = sub.permalink
-        requester = sub.author.name if sub.author else None
-        dor = sub.created_utc
-        return link, requester, dor
-
-
-def build_thread(comments):
-    """
-    Creates the body of the thread
-    """
-
-    stats = [row for row in conn.execute('SELECT * FROM stats')][0]
-    header = """
-##### Stats for approvals in the past 60 days
-^^Updated ^^weekly ^^| ^^Measured ^^in ^^days ^^| ^^Some ^^approved ^^by ^^current ^^mods
-
-Mean | Median | SD | Var | Min | Max | Quantity
----|---|---|---|---|---|---|---
- {} | {} | {} | {} | {} | {} | {}
-
----
-##### Recent Comments
----
-Admin|Comment Date|Thread|Requester|Request Date
----|---|---|---|---
-""".format(*stats)
-    strings = []
-    comments.sort(key=lambda c: c[1], reverse=True)
-    for comment in comments:
-        strings.append(' | '.join(update_comments(comment)))  # TODO might need to be a list comprehension
-    return header + '\n'.join(strings)
-
-
-def update_comments(comment):
-    """
-    Modifies strings to be used in the thread body
-    """
-
-    moderator = '[{}](/u/{})'.format(comment[0][:8], comment[0])
-    c_time = strftime('%d %b %Y', gmtime(comment[1]))
-    s_link = '[Thread](http://www.reddit.com{})'.format(comment[2])
-    requester = '[deleted]'
-    if comment[3]:
-        requester = '[{}](/u/{})'.format(comment[3][:8], comment[3])
-    s_time = strftime('%d %b %Y', gmtime(comment[4]))
-    return moderator, c_time, s_link, requester, s_time
-
-
-def submit_thread(thread_body):
-    """
-    Builds and submits the thread
-    Distinguishes author as a moderator
-    """
-
-    try:
-        submission = reddit.subreddit('redditapprovals').submit(
-            title='Recent Admin Activity',
-            selftext=thread_body,
-            send_replies=True
-        )
-    except Exception as error:
-        logger.exception(error)
+        parts = url.split('/r/')
+    if len(parts) < 2:
+        return None
+    elif '/' in parts[1]:
+        return parts[1].split('/')[0]
     else:
-        try:
-            submission.mod.distinguish()
-            submission.mod.approve()
-        except Exception as error:
-            logger.exception(error)
+        return parts[1]
+
+
+def check_mod_status():
+    """
+    Generates all entries from the db where is_mod == False
+    Checks each entry to see if the requester has been made a mod
+    If they are now a mod, the database is updated
+    """
+
+    query = 'SELECT id, author, created_utc, subreddit FROM threads WHERE is_mod=0'
+    not_mods = {row for row in conn.execute(query)}
+    for entry in not_mods:
+        _id, author, created_utc, subreddit = entry
+        created_utc = float(created_utc)
+        date_of_mod = is_mod(author, created_utc, subreddit)
+        if not date_of_mod:
+            continue
+        elif date_of_mod == 'Forbidden':  # Private
+            update_status(_id, 2, 'Forbidden', 0)
+        elif date_of_mod == 'NotFound':  # Banned
+            update_status(_id, 2, 'NotFound', 0)
+        elif date_of_mod == 'AlreadyMod':
+            update_status(_id, 2, 'AlreadyMod', 0)
         else:
-            return
+            update_status(_id, 1, date_of_mod, created_utc)
+    conn.commit()
+
+
+def is_mod(author, created_utc, subreddit):
+    """
+    Generates all moderators of the subreddit in question
+    Return True if the author is a mod and they were made a mod after their request
+    They may have been made a mod by an existing mod. Doesn't mean admin approval.
+    """
+
+    try:
+        mod_gen = reddit.subreddit(subreddit).moderator()
+    except prawcore.exceptions.Forbidden:
+        return 'Forbidden'
+    except prawcore.exceptions.NotFound:
+        return 'NotFound'
+    except Exception as error:
+        logger.exception(error)
+    else:
+        for mod in mod_gen:
+            if not mod.name.lower() == author.lower():
+                continue
+            elif created_utc > mod.date:
+                return 'AlreadyMod'
+            else:
+                return mod.date
+        return False
+
+
+def update_status(_id, status, date_of_mod, created_utc):
+    """
+    Updates the db to indicate when the person was made a moderator
+    Calculates the duration between the request being made and the
+    person being made a moderator
+    """
+
+    if isinstance(date_of_mod, str):
+        duration = 0
+    else:
+        duration = date_of_mod - created_utc
+    cur.execute('UPDATE threads SET is_mod=?, date_of_mod=?, duration=? WHERE id=?', (
+        status, date_of_mod, duration, _id
+    ))
+
+
+def calculate_stats():
+    """
+    Refresh table
+    Get all durations and convert float
+    Calc mean, median and divide results by num of seconds/day
+    Store the values
+    """
+
+    cur.execute('DROP TABLE IF EXISTS stats')
+    cur.execute('CREATE TABLE IF NOT EXISTS stats(mean, median, stdev, var, min, max, count)')
+    dur = [float(d[0]) for d in conn.execute('SELECT duration FROM threads WHERE is_mod=1')]
+    count = len(dur)
+
+    days = [(d // (60 * 60 * 24)) for d in dur]
+    var = int(sts.variance(days))
+    stdev = '{:.3}'.format(var ** .5)
+
+    values = [sts.mean(dur), sts.median(dur), min(dur), max(dur)]
+    mean, median, _min, _max = [int(d // (60 * 60 * 24)) for d in values]
+
+    cur.execute('INSERT INTO stats VALUES (?,?,?,?,?,?,?)', (
+         mean, median, stdev, var, _min, _max, count))
+    conn.commit()
 
 
 if __name__ == '__main__':
