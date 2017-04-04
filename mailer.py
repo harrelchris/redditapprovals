@@ -12,19 +12,18 @@ logging.basicConfig(
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s')
-target_sub = 'pylet'
+target_sub = 'redditrequest'
 
 
 # TODO Add handling for WARNING: 502 status
 def main():
     logger.info('Start')
-    start = time()
     sleep(5)
     prime_mods()
     while True:
         try:
             for submission in reddit.subreddit(target_sub).stream.submissions():
-                if submission.created_utc < start:
+                if time() - submission.created_utc > 60 * 60 * 24 * 2:
                     continue
                 handle(submission.author.name.lower())
         except prawcore.exceptions.RequestException:
