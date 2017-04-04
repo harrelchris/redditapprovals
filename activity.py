@@ -112,6 +112,7 @@ Mean | Median | SD | Var | Min | Max | Quantity
 
 ---
 ##### Recent Comments
+^^Updated ^^daily
 ---
 Admin|Comment Date|Thread|Requester|Request Date
 ---|---|---|---|---
