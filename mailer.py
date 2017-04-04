@@ -2,6 +2,7 @@ from time import sleep, time
 import logging
 import sqlite3
 import praw
+import prawcore
 
 reddit = praw.Reddit('AUTHENTICATION')
 conn = sqlite3.connect('approvals.db')
@@ -14,6 +15,7 @@ logging.basicConfig(
 target_sub = 'pylet'
 
 
+# TODO Add handling for WARNING: 502 status
 def main():
     logger.info('Start')
     start = time()
@@ -25,6 +27,10 @@ def main():
                 if submission.created_utc < start:
                     continue
                 handle(submission.author.name.lower())
+        except prawcore.exceptions.RequestException:
+            continue
+        except prawcore.exceptions.ServerError:
+            continue
         except Exception as error:
             logger.exception(error)
             sleep(30)
@@ -40,7 +46,11 @@ def prime_mods():
                 continue
             else:
                 conn.execute('INSERT INTO blacklist VALUES (?)', (mod,))
-        conn.commit()
+                conn.commit()
+    except prawcore.exceptions.RequestException:
+        pass
+    except prawcore.exceptions.ServerError:
+        pass
     except Exception as error:
         logger.exception(error)
 
@@ -64,6 +74,10 @@ Please visit /r/redditapprovals for more information.
 
         try:
             reddit.redditor(author).message('Estimated Wait Time', message)
+        except prawcore.exceptions.RequestException:
+            pass
+        except prawcore.exceptions.ServerError:
+            pass
         except Exception as error:
             logger.exception(error)
         else:
