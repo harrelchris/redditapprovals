@@ -11,7 +11,7 @@ logging.basicConfig(
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s')
-target_sub = 'redditrequest'
+target_sub = 'pylet'
 
 
 def main():
@@ -31,21 +31,25 @@ def main():
 
 
 def prime_mods():
-    blacklist = {n[0] for n in conn.execute('SELECT user FROM blacklist')}
     try:
         for mod in reddit.subreddit(target_sub).moderator():
             mod = mod.name.lower()
-            if mod in blacklist:
+            db = conn.execute('SELECT EXISTS(SELECT 1 FROM blacklist WHERE user=(?) LIMIT 1)',
+                              (mod,))
+            if db.fetchone()[0]:
                 continue
-            conn.execute('INSERT INTO blacklist VALUES (?)', (mod,))
+            else:
+                conn.execute('INSERT INTO blacklist VALUES (?)', (mod,))
         conn.commit()
     except Exception as error:
         logger.exception(error)
 
 
 def handle(author):
-    if author in {n[0] for n in conn.execute('SELECT user FROM blacklist')}:
-        return None
+    db = conn.execute('SELECT EXISTS(SELECT 1 FROM blacklist WHERE user=(?) LIMIT 1)',
+                      (author,))
+    if db.fetchone()[0]:
+        return
     else:
 
         message = """
