@@ -15,7 +15,6 @@ logging.basicConfig(
 target_sub = 'redditrequest'
 
 
-# TODO Add handling for WARNING: 502 status
 def main():
     logger.info('Start')
     sleep(5)
@@ -74,15 +73,23 @@ Please visit /r/redditapprovals for more information.
         try:
             reddit.redditor(author).message('Estimated Wait Time', message)
         except prawcore.exceptions.RequestException:
-            pass
+            conn.execute('INSERT INTO blacklist VALUES (?)', (author,))
         except prawcore.exceptions.ServerError:
-            pass
+            conn.execute('INSERT INTO blacklist VALUES (?)', (author,))
         except Exception as error:
             logger.exception(error)
+            conn.execute('INSERT INTO blacklist VALUES (?)', (author,))
         else:
             conn.execute('INSERT INTO blacklist VALUES (?)', (author,))
-            conn.commit()
-            return
+        finally:
+            while True:
+                try:
+                    conn.commit()
+                except Exception:
+                    continue
+                else:
+                    break
+        return
 
 
 if __name__ == '__main__':
