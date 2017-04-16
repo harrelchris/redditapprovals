@@ -104,7 +104,7 @@ def build_thread(comments):
     stats = [row for row in conn.execute('SELECT * FROM stats')][0]
     header = """
 ##### Stats for approvals in the past 30 days
-^^Updated ^^weekly ^^| ^^Measured ^^in ^^days ^^| ^^Some ^^approved ^^by ^^current ^^mods
+^^Updated ^^daily ^^| ^^Measured ^^in ^^days ^^| ^^Some ^^approved ^^by ^^current ^^mods
 
 Mean | Median | SD | Var | Min | Max | Quantity
 ---|---|---|---|---|---|---|---
