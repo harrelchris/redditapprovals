@@ -1,0 +1,3 @@
+0 2 * * * cd /path && python3 approvals.py
+0 3 * * * cd /path && python3 activity.py
+@reboot cd /path && python3 mailer.py
