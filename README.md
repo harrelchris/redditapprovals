@@ -21,7 +21,7 @@
 * Stores the date of their request and the date they were made a moderator.
 * Calculates the stats for all approvals in the database.
 * Stores the results for other scripts to access.
-* Operated weekly.
+* Operated daily.
 
 ### Mailer.py
 * Sends a notification to users who submit a request to [/r/redditrequest](https://www.reddit.com/r/redditrequest).
