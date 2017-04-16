@@ -1,4 +1,4 @@
-from time import time
+from time import sleep, time
 import statistics as sts
 import logging
 import sqlite3
