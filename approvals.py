@@ -30,7 +30,7 @@ def store_requests():
     """
     Generates id column from db
     Gathers all threads from /r/redditrequests
-    Adds new thread to the database and commits once
+    Adds new thread to the database and commits multiple times to prevent locking db
     """
 
     ids = {_id[0] for _id in conn.execute('SELECT id FROM threads')}
@@ -40,7 +40,7 @@ def store_requests():
             continue
         cur.execute('INSERT INTO threads VALUES (?,?,?,?,?,?,?,?)', (
             _id, author, created_utc, permalink, subreddit, 0, 0, 0))
-    conn.commit()
+        conn.commit()
 
 
 def request_gen():
@@ -110,7 +110,7 @@ def check_mod_status():
             update_status(_id, 2, 'AlreadyMod', 0)
         else:
             update_status(_id, 1, date_of_mod, created_utc)
-    conn.commit()
+        conn.commit()
 
 
 def is_mod(author, created_utc, subreddit):
