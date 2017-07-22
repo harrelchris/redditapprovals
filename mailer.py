@@ -70,6 +70,9 @@ Please visit /r/redditapprovals for more information.
 This is an automatic message from a user-created bot.  
 
 I am not an admin and cannot approve your request.  
+
+---  
+
 ^^You ^^will ^^never ^^be ^^messaged ^^about ^^this ^^again.  
         """.format([s for s in conn.execute('SELECT * FROM stats')][0][0])
 
