@@ -126,8 +126,11 @@ def is_mod(author, created_utc, subreddit):
         return 'Forbidden'
     except prawcore.exceptions.NotFound:
         return 'NotFound'
+    except prawcore.exceptions.Redirect:
+        return 'NotFound'
     except Exception as error:
         logger.exception(error)
+        return 'NotFound'
     else:
         for mod in mod_gen:
             if not mod.name.lower() == author.lower():
