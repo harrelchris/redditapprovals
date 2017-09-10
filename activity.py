@@ -147,7 +147,7 @@ def submit_thread(thread_body):
 
     try:
         submission = reddit.subreddit('redditapprovals').submit(
-            title='Recent Admin Activity',
+            title='Daily Admin Activity',
             selftext=thread_body,
             send_replies=True
         )
